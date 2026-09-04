@@ -465,17 +465,17 @@
     /* ==========================================================================
        MEDIA TYPE DETECTION & RENDER ENGINE
        ========================================================================== */
-    // Drive's thumbnail proxies (lh3, drive.google.com/thumbnail) return a
-    // valid-looking JPEG still frame for videos too, so a successful <img>
-    // load against those endpoints tells us nothing. Instead we load the
-    // file's RAW bytes (uc?export=download, the actual file content, not a
-    // proxy) into a real <img> element. A browser's image decoder can only
-    // decode actual image formats: raw video bytes (mp4/mov/webm/etc.) will
-    // always fail to decode and reliably fire onerror. Raw photo bytes will
-    // always decode and fire onload. This direction of test is dependable;
-    // the previous approach (probing video bytes with a <video> tag) is not,
-    // because some browsers partially read video-container metadata even
-    // from non-video files and give false positives.
+    // Drive's "thumbnail" proxy (drive.google.com/thumbnail) returns a valid
+    // JPEG frame for videos too, so it can't be used to tell photos and
+    // videos apart. The "uc?export=download" endpoint also can't be used for
+    // detection: for larger files it serves an HTML virus-scan warning page
+    // instead of raw bytes, which fails to decode as an image regardless of
+    // the real file type and produces false "video" results.
+    //
+    // The lh3.googleusercontent.com media endpoint (the one already used to
+    // display real photos below) is the one endpoint that behaves correctly
+    // for detection: it serves actual photos fine, and reliably fails to
+    // load at all for video file IDs. So we probe with that exact endpoint.
     function initMediaThumb(id) {
       const wrapper = document.getElementById(`wrap-${id}`);
       if (!wrapper) return;
@@ -494,7 +494,7 @@
       // Safety timeout in case neither event fires (e.g. blocked/slow network)
       setTimeout(() => finish(false), 5000);
 
-      probe.src = `https://drive.google.com/uc?export=download&id=${id}`;
+      probe.src = `https://lh3.googleusercontent.com/d/${id}=w1000`;
     }
 
     function renderImageThumb(wrapper, id) {
