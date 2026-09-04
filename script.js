@@ -465,54 +465,36 @@
     /* ==========================================================================
        MEDIA TYPE DETECTION & RENDER ENGINE
        ========================================================================== */
-    // Drive's generic thumbnail/uc endpoints return a valid JPEG for almost any
-    // file type, including videos, so a successful <img> load does NOT mean the
-    // file is a photo. Instead we ask Drive directly what the file's mimeType
-    // is, using the public "lh3" media info endpoint that works without an API
-    // key. If that lookup fails for any reason, we fall back to a video-element
-    // probe as a second check before defaulting to "image".
+    // Drive's thumbnail proxies (lh3, drive.google.com/thumbnail) return a
+    // valid-looking JPEG still frame for videos too, so a successful <img>
+    // load against those endpoints tells us nothing. Instead we load the
+    // file's RAW bytes (uc?export=download, the actual file content, not a
+    // proxy) into a real <img> element. A browser's image decoder can only
+    // decode actual image formats: raw video bytes (mp4/mov/webm/etc.) will
+    // always fail to decode and reliably fire onerror. Raw photo bytes will
+    // always decode and fire onload. This direction of test is dependable;
+    // the previous approach (probing video bytes with a <video> tag) is not,
+    // because some browsers partially read video-container metadata even
+    // from non-video files and give false positives.
     function initMediaThumb(id) {
       const wrapper = document.getElementById(`wrap-${id}`);
       if (!wrapper) return;
 
-      fetch(`https://drive.google.com/uc?id=${id}&export=download`, { method: 'HEAD' })
-        .then(res => {
-          const contentType = res.headers.get('content-type') || '';
-          if (contentType.startsWith('video/')) {
-            renderVideoThumb(wrapper, id);
-          } else if (contentType.startsWith('image/')) {
-            renderImageThumb(wrapper, id);
-          } else {
-            probeWithVideoElement(wrapper, id);
-          }
-        })
-        .catch(() => probeWithVideoElement(wrapper, id));
-    }
-
-    // Fallback: probe the actual file bytes with a <video> element. If the
-    // browser can read video metadata from it, it's a video; otherwise image.
-    function probeWithVideoElement(wrapper, id) {
-      const probe = document.createElement('video');
-      probe.preload = 'metadata';
-      probe.muted = true;
-      probe.style.display = 'none';
-
+      const probe = new Image();
       let settled = false;
 
-      const finish = (isVideo) => {
+      const finish = (isPhoto) => {
         if (settled) return;
         settled = true;
-        probe.remove();
-        isVideo ? renderVideoThumb(wrapper, id) : renderImageThumb(wrapper, id);
+        isPhoto ? renderImageThumb(wrapper, id) : renderVideoThumb(wrapper, id);
       };
 
-      probe.addEventListener('loadedmetadata', () => finish(true));
-      probe.addEventListener('error', () => finish(false));
+      probe.onload = () => finish(true);
+      probe.onerror = () => finish(false);
       // Safety timeout in case neither event fires (e.g. blocked/slow network)
-      setTimeout(() => finish(false), 4000);
+      setTimeout(() => finish(false), 5000);
 
       probe.src = `https://drive.google.com/uc?export=download&id=${id}`;
-      document.body.appendChild(probe);
     }
 
     function renderImageThumb(wrapper, id) {
