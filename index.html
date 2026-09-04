@@ -1219,15 +1219,7 @@
                         <div class="side-photo-title">📷 Media &amp; Attachments (${photoIds.length})</div>
                         <div class="photo-gallery-side">
                           ${photoIds.map(id => `
-                            <div class="photo-thumb-wrapper" id="wrap-${id}">
-                              <img class="photo-thumb-side" 
-                                   src="https://lh3.googleusercontent.com/d/${id}=w1000" 
-                                   alt="Project media preview" 
-                                   data-id="${id}"
-                                   data-try="1"
-                                   onclick="openLightbox(this.src, '${id}')" 
-                                   onerror="handleImgError(this, '${id}')">
-                            </div>
+                            <div class="photo-thumb-wrapper" id="wrap-${id}" data-id="${id}"></div>
                           `).join('')}
                         </div>
                       </div>
@@ -1240,6 +1232,8 @@
           }).join('')}
         </div>
       `;
+
+      journeySubs.forEach(sub => (sub.photoIds || []).forEach(id => initMediaThumb(id)));
     }
 
     /* ==========================================================================
@@ -1300,8 +1294,62 @@
     }
 
     /* ==========================================================================
-       MULTI-STAGE IMAGE FALLBACK ENGINE
+       MEDIA TYPE DETECTION & RENDER ENGINE
        ========================================================================== */
+    // Drive's generic thumbnail/uc endpoints return a valid JPEG for almost any
+    // file type, including videos (video frame or a generic file icon) - so a
+    // successful <img> load does NOT mean the file is a photo. To tell photos
+    // and videos apart we probe the actual file bytes with a <video> element:
+    // if the browser can read video metadata from it, it's a video; otherwise
+    // we treat it as an image.
+    function initMediaThumb(id) {
+      const wrapper = document.getElementById(`wrap-${id}`);
+      if (!wrapper) return;
+
+      const probe = document.createElement('video');
+      probe.preload = 'metadata';
+      probe.muted = true;
+      probe.style.display = 'none';
+
+      let settled = false;
+
+      const finish = (isVideo) => {
+        if (settled) return;
+        settled = true;
+        probe.remove();
+        isVideo ? renderVideoThumb(wrapper, id) : renderImageThumb(wrapper, id);
+      };
+
+      probe.addEventListener('loadedmetadata', () => finish(true));
+      probe.addEventListener('error', () => finish(false));
+      // Safety timeout in case neither event fires (e.g. blocked/slow network)
+      setTimeout(() => finish(false), 4000);
+
+      probe.src = `https://drive.google.com/uc?export=download&id=${id}`;
+      document.body.appendChild(probe);
+    }
+
+    function renderImageThumb(wrapper, id) {
+      wrapper.innerHTML = `
+        <img class="photo-thumb-side"
+             src="https://lh3.googleusercontent.com/d/${id}=w1000"
+             alt="Project media preview"
+             data-id="${id}"
+             data-try="1"
+             onclick="openLightbox(this.src, '${id}', false)"
+             onerror="handleImgError(this, '${id}')">
+      `;
+    }
+
+    function renderVideoThumb(wrapper, id) {
+      wrapper.classList.add('video-thumb-wrapper');
+      wrapper.setAttribute('onclick', `openLightbox('', '${id}', true)`);
+      wrapper.innerHTML = `
+        <img class="photo-thumb-side" src="https://drive.google.com/thumbnail?id=${id}&sz=w1000" alt="Video preview" onerror="this.style.display='none';">
+        <div class="video-badge"><span class="video-badge-icon">▶</span></div>
+      `;
+    }
+
     function handleImgError(img, id) {
       const tryStage = parseInt(img.getAttribute('data-try') || '1', 10);
 
@@ -1314,16 +1362,13 @@
         img.setAttribute('data-try', '3');
         img.src = `https://drive.google.com/uc?export=view&id=${id}`;
       } else {
-        // Fallback Stage 3: not loadable as a static image, most likely a video
-        // (or another non-image file). Show a video thumbnail with a play badge
-        // instead of a plain link, using Drive's embeddable preview player.
+        // Fallback Stage 3: still not loadable as an image - show a clean link
         const wrapper = img.parentElement;
         if (wrapper) {
-          wrapper.classList.add('video-thumb-wrapper');
-          wrapper.setAttribute('onclick', `openLightbox('', '${id}')`);
           wrapper.innerHTML = `
-            <img class="photo-thumb-side" src="https://drive.google.com/thumbnail?id=${id}&sz=w1000" alt="Video preview" onerror="this.style.display='none'; this.parentElement.classList.add('video-no-thumb');">
-            <div class="video-badge"><span class="video-badge-icon">▶</span></div>
+            <a href="https://drive.google.com/open?id=${id}" target="_blank" class="media-file-link" title="Open file in Google Drive">
+              <span>📎</span> View File
+            </a>
           `;
         }
       }
@@ -1361,10 +1406,7 @@
       });
     }
 
-    function openLightbox(url, id) {
-      const wrapper = id ? document.getElementById(`wrap-${id}`) : null;
-      const isVideo = wrapper ? wrapper.classList.contains('video-thumb-wrapper') : false;
-
+    function openLightbox(url, id, isVideo) {
       if (isVideo && id) {
         lightboxImg.style.display = 'none';
         lightboxImg.src = '';
