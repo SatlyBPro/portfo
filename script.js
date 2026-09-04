@@ -465,33 +465,39 @@
     /* ==========================================================================
        MEDIA TYPE DETECTION & RENDER ENGINE
        ========================================================================== */
-    // Drive's "thumbnail" proxy (drive.google.com/thumbnail) returns a valid
-    // JPEG frame for videos too, so it can't be used to tell photos and
-    // videos apart. The "uc?export=download" endpoint also can't be used for
-    // detection: for larger files it serves an HTML virus-scan warning page
-    // instead of raw bytes, which fails to decode as an image regardless of
-    // the real file type and produces false "video" results.
-    //
-    // The lh3.googleusercontent.com media endpoint (the one already used to
-    // display real photos below) is the one endpoint that behaves correctly
-    // for detection: it serves actual photos fine, and reliably fails to
-    // load at all for video file IDs. So we probe with that exact endpoint.
+    // Only lh3.googleusercontent.com reliably refuses to serve video file IDs
+    // as images, drive.google.com/thumbnail and uc?export=view both return a
+    // usable-looking frame for videos too, so they can't be used to tell
+    // photos and videos apart. But lh3 alone can also fail transiently on a
+    // genuine photo (rate limiting, size, caching), so detection retries lh3
+    // itself a couple of times before concluding "not a photo". Once a file
+    // is confirmed a photo, the other two endpoints remain in play purely as
+    // display fallbacks if the working URL later stops loading.
     function initMediaThumb(id) {
       const wrapper = document.getElementById(`wrap-${id}`);
       if (!wrapper) return;
 
+      probeLh3(id, 0, (isPhoto) => {
+        isPhoto ? renderImageThumb(wrapper, id) : renderVideoThumb(wrapper, id);
+      });
+    }
+
+    function probeLh3(id, attempt, callback) {
       const probe = new Image();
       let settled = false;
 
-      const finish = (isPhoto) => {
+      const finish = (ok) => {
         if (settled) return;
         settled = true;
-        isPhoto ? renderImageThumb(wrapper, id) : renderVideoThumb(wrapper, id);
+        if (ok || attempt >= 2) {
+          callback(ok);
+        } else {
+          probeLh3(id, attempt + 1, callback);
+        }
       };
 
       probe.onload = () => finish(true);
       probe.onerror = () => finish(false);
-      // Safety timeout in case neither event fires (e.g. blocked/slow network)
       setTimeout(() => finish(false), 5000);
 
       probe.src = `https://lh3.googleusercontent.com/d/${id}=w1000`;
@@ -530,7 +536,7 @@
         img.setAttribute('data-try', '3');
         img.src = `https://drive.google.com/uc?export=view&id=${id}`;
       } else {
-        // Fallback Stage 3: still not loadable as an image - show a clean link
+        // Fallback Stage 3: still not loadable as an image, show a clean link
         const wrapper = img.parentElement;
         if (wrapper) {
           wrapper.innerHTML = `
