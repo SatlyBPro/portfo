@@ -579,6 +579,34 @@
       box-shadow: 0 8px 18px rgba(0,0,0,0.5);
     }
 
+    .video-thumb-wrapper {
+      cursor: pointer;
+    }
+
+    .video-badge {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      pointer-events: none;
+      border-radius: 10px;
+      background: rgba(0, 0, 0, 0.28);
+    }
+
+    .video-badge-icon {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      background: rgba(18, 8, 16, 0.75);
+      color: var(--san3a-ink);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      box-shadow: 0 4px 10px rgba(0,0,0,0.4);
+    }
+
     .media-file-link {
       display: flex;
       flex-direction: column;
@@ -660,6 +688,15 @@
       max-height: 85vh;
       border-radius: 12px;
       box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+    }
+
+    .lightbox iframe {
+      width: min(90vw, 960px);
+      height: min(85vh, 540px);
+      border: none;
+      border-radius: 12px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+      background: #000;
     }
 
     .lightbox-close {
@@ -787,6 +824,7 @@
   <div class="lightbox" id="lightbox">
     <span class="lightbox-close" id="lightboxClose">&times;</span>
     <img id="lightboxImg" src="" alt="Submission photo preview">
+    <iframe id="lightboxVideo" src="" style="display:none;" allow="autoplay; encrypted-media" allowfullscreen></iframe>
   </div>
   </div>
 
@@ -814,6 +852,7 @@
     const lastUpdatedEl = document.getElementById('lastUpdated');
     const lightbox = document.getElementById('lightbox');
     const lightboxImg = document.getElementById('lightboxImg');
+    const lightboxVideo = document.getElementById('lightboxVideo');
 
     function initializePortfolio() {
       setupEventListeners();
@@ -847,12 +886,10 @@
         render();
       });
 
-      document.getElementById('lightboxClose').addEventListener('click', () => {
-        lightbox.classList.remove('active');
-      });
+      document.getElementById('lightboxClose').addEventListener('click', closeLightbox);
 
       lightbox.addEventListener('click', (e) => {
-        if (e.target === lightbox) lightbox.classList.remove('active');
+        if (e.target === lightbox) closeLightbox();
       });
     }
 
@@ -1182,13 +1219,13 @@
                         <div class="side-photo-title">📷 Media &amp; Attachments (${photoIds.length})</div>
                         <div class="photo-gallery-side">
                           ${photoIds.map(id => `
-                            <div class="photo-thumb-wrapper">
+                            <div class="photo-thumb-wrapper" id="wrap-${id}">
                               <img class="photo-thumb-side" 
                                    src="https://lh3.googleusercontent.com/d/${id}=w1000" 
                                    alt="Project media preview" 
                                    data-id="${id}"
                                    data-try="1"
-                                   onclick="openLightbox(this.src)" 
+                                   onclick="openLightbox(this.src, '${id}')" 
                                    onerror="handleImgError(this, '${id}')">
                             </div>
                           `).join('')}
@@ -1277,13 +1314,16 @@
         img.setAttribute('data-try', '3');
         img.src = `https://drive.google.com/uc?export=view&id=${id}`;
       } else {
-        // Fallback Stage 3: Replace image with clean link if blocked/non-image asset
+        // Fallback Stage 3: not loadable as a static image, most likely a video
+        // (or another non-image file). Show a video thumbnail with a play badge
+        // instead of a plain link, using Drive's embeddable preview player.
         const wrapper = img.parentElement;
         if (wrapper) {
+          wrapper.classList.add('video-thumb-wrapper');
+          wrapper.setAttribute('onclick', `openLightbox('', '${id}')`);
           wrapper.innerHTML = `
-            <a href="https://drive.google.com/open?id=${id}" target="_blank" class="media-file-link" title="Open file in Google Drive">
-              <span>📎</span> View File
-            </a>
+            <img class="photo-thumb-side" src="https://drive.google.com/thumbnail?id=${id}&sz=w1000" alt="Video preview" onerror="this.style.display='none'; this.parentElement.classList.add('video-no-thumb');">
+            <div class="video-badge"><span class="video-badge-icon">▶</span></div>
           `;
         }
       }
@@ -1321,9 +1361,30 @@
       });
     }
 
-    function openLightbox(url) {
-      lightboxImg.src = url;
+    function openLightbox(url, id) {
+      const wrapper = id ? document.getElementById(`wrap-${id}`) : null;
+      const isVideo = wrapper ? wrapper.classList.contains('video-thumb-wrapper') : false;
+
+      if (isVideo && id) {
+        lightboxImg.style.display = 'none';
+        lightboxImg.src = '';
+        lightboxVideo.src = `https://drive.google.com/file/d/${id}/preview`;
+        lightboxVideo.style.display = 'block';
+      } else {
+        lightboxVideo.style.display = 'none';
+        lightboxVideo.src = '';
+        lightboxImg.style.display = 'block';
+        lightboxImg.src = url;
+      }
+
       lightbox.classList.add('active');
+    }
+
+    function closeLightbox() {
+      lightbox.classList.remove('active');
+      lightboxVideo.src = '';
+      lightboxVideo.style.display = 'none';
+      lightboxImg.style.display = 'block';
     }
 
     function escapeHtml(str) {
