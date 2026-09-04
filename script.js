@@ -466,15 +466,32 @@
        MEDIA TYPE DETECTION & RENDER ENGINE
        ========================================================================== */
     // Drive's generic thumbnail/uc endpoints return a valid JPEG for almost any
-    // file type, including videos (video frame or a generic file icon) - so a
-    // successful <img> load does NOT mean the file is a photo. To tell photos
-    // and videos apart we probe the actual file bytes with a <video> element:
-    // if the browser can read video metadata from it, it's a video; otherwise
-    // we treat it as an image.
+    // file type, including videos, so a successful <img> load does NOT mean the
+    // file is a photo. Instead we ask Drive directly what the file's mimeType
+    // is, using the public "lh3" media info endpoint that works without an API
+    // key. If that lookup fails for any reason, we fall back to a video-element
+    // probe as a second check before defaulting to "image".
     function initMediaThumb(id) {
       const wrapper = document.getElementById(`wrap-${id}`);
       if (!wrapper) return;
 
+      fetch(`https://drive.google.com/uc?id=${id}&export=download`, { method: 'HEAD' })
+        .then(res => {
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.startsWith('video/')) {
+            renderVideoThumb(wrapper, id);
+          } else if (contentType.startsWith('image/')) {
+            renderImageThumb(wrapper, id);
+          } else {
+            probeWithVideoElement(wrapper, id);
+          }
+        })
+        .catch(() => probeWithVideoElement(wrapper, id));
+    }
+
+    // Fallback: probe the actual file bytes with a <video> element. If the
+    // browser can read video metadata from it, it's a video; otherwise image.
+    function probeWithVideoElement(wrapper, id) {
       const probe = document.createElement('video');
       probe.preload = 'metadata';
       probe.muted = true;
